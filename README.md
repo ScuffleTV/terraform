@@ -1,6 +1,8 @@
-# k8s
+# Terraform
 
-This repo contains the Kubernetes manifests for 3rd party services used by Scuffle.
+This repo contains the Terraform files for the Scuffle infrastructure.
+
+You can check out a usage guide [here](./USAGE.md).
 
 ## Contributing
 

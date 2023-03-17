@@ -1,0 +1,144 @@
+activity_tracker:
+  filepath: {{ .Values.mimir.dataDir }}/activity.log
+
+common:
+  storage:
+    backend: s3
+    s3:
+      region: ${s3_region}
+      access_key_id: ${s3_access_key}
+      endpoint: ${s3_endpoint}
+      secret_access_key: ${s3_secret_key}
+  
+blocks_storage:
+  bucket_store:
+    max_chunk_pool_bytes: 12884901888 # 12GiB
+    sync_dir: {{ .Values.mimir.dataDir }}/tsdb-sync
+    {{- if .Values.memcachedchunks.enabled }}
+    chunks_cache:
+      backend: memcached
+      memcached:
+        addresses: {{ include "grafana-mimir.memcached-chunks.host" . }}
+        timeout: 450ms
+    {{- end }}
+    {{- if .Values.memcachedindex.enabled }}
+    index_cache:
+      backend: memcached
+      memcached:
+        addresses: {{ include "grafana-mimir.memcached-index.host" . }}
+        timeout: 450ms
+    {{- end }}
+    {{- if .Values.memcachedmetadata.enabled }}
+    metadata_cache:
+      backend: memcached
+      memcached:
+        addresses: {{ include "grafana-mimir.memcached-metadata.host" . }}
+        timeout: 450ms
+    {{- end }}
+  tsdb:
+    dir: {{ .Values.mimir.dataDir }}/tsdb
+  s3:
+    bucket_name: ${s3_tsdb_bucket_name}
+
+ingester:
+  compaction_interval: 30m
+  deletion_delay: 2h
+  max_closing_blocks_concurrency: 2
+  max_opening_blocks_concurrency: 4
+  symbols_flushers_concurrency: 4
+  data_dir: {{ .Values.mimir.dataDir }}/ingester
+  sharding_ring:
+    wait_stability_min_duration: 1m
+
+frontend:
+  parallelize_shardable_queries: true
+  {{- if .Values.memcachedfrontend.enabled }}
+  results_cache:
+    backend: memcached
+    memcached:
+      timeout: 500ms
+      addresses: {{ include "grafana-mimir.memcached-frontend.host" . }}
+  cache_results: true
+  {{- end }}
+  {{- if .Values.queryScheduler.enabled }}
+  scheduler_address: {{ template "grafana-mimir.query-scheduler.fullname" . }}-headless.{{ .Release.Namespace }}.svc:{{ .Values.queryScheduler.service.ports.grpc }}
+  {{- end }}
+
+frontend_worker:
+  grpc_client_config:
+    max_send_msg_size: 419430400 # 400MiB
+  {{- if .Values.queryScheduler.enabled }}
+  scheduler_address: {{ template "grafana-mimir.query-scheduler.fullname" . }}-headless.{{ .Release.Namespace }}.svc:{{ .Values.queryScheduler.service.ports.grpc }}
+  {{- else }}
+  frontend_address: {{ template "grafana-mimir.query-frontend.fullname" . }}-headless.{{ .Release.Namespace }}.svc:{{ .Values.queryFrontend.service.ports.grpc }}
+  {{- end }}
+
+ingester:
+  ring:
+    final_sleep: 0s
+    num_tokens: 512
+    tokens_file_path: {{ .Values.mimir.dataDir }}/tokens
+    unregister_on_shutdown: false
+
+ingester_client:
+  grpc_client_config:
+    max_recv_msg_size: 104857600
+    max_send_msg_size: 104857600
+
+limits:
+  max_total_query_length: 12000h
+  max_query_parallelism: 240
+  max_cache_freshness: 10m
+
+memberlist:
+  abort_if_cluster_join_fails: false
+  compression_enabled: false
+  advertise_port: {{ .Values.mimir.containerPorts.gossipRing }}
+  bind_port: {{ .Values.mimir.containerPorts.gossipRing }}
+  join_members:
+  - dns+{{ include "grafana-mimir.gossip-ring.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:{{ .Values.mimir.gossipRing.service.ports.http }}
+
+querier:
+  max_concurrent: 16
+
+query_scheduler:
+  max_outstanding_requests_per_tenant: 800
+
+server:
+  grpc_server_max_concurrent_streams: 1000
+  grpc_server_max_connection_age: 2m
+  grpc_server_max_connection_age_grace: 5m
+  grpc_server_max_connection_idle: 1m
+  http_listen_port: {{ .Values.mimir.containerPorts.http }}
+  grpc_listen_port: {{ .Values.mimir.containerPorts.grpc }}
+
+api:
+  alertmanager_http_prefix: {{ .Values.mimir.httpPrefix.alertmanager }}
+  prometheus_http_prefix: {{ .Values.mimir.httpPrefix.prometheus }}
+
+store_gateway:
+  sharding_ring:
+    wait_stability_min_duration: 1m
+    tokens_file_path: {{ .Values.mimir.dataDir }}/tokens
+
+{{- if .Values.ruler.enabled }}
+ruler:
+  alertmanager_url: dnssrvnoa+http://_http-metrics._tcp.{{ include "grafana-mimir.alertmanager.fullname" . }}-headless.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}/alertmanager
+  enable_api: true
+  rule_path: {{ .Values.mimir.dataDir }}/ruler
+
+ruler_storage:
+  s3:
+    bucket_name: ${s3_ruler_bucket_name}
+{{- end }}
+
+{{- if .Values.alertmanager.enabled }}
+alertmanager:
+  data_dir: {{ .Values.mimir.dataDir }}/alert-manager
+  enable_api: true
+  external_url: {{ .Values.mimir.httpPrefix.prometheus }}
+
+alertmanager_storage:
+  s3:
+    bucket_name: ${s3_alertmanager_bucket_name}
+{{- end }}
