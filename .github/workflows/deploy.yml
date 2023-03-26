@@ -76,6 +76,6 @@ jobs:
 
       - name: Run Terraform Apply
         run: |
-          terraform -chdir=terraform init
-          terraform -chdir=terraform workspace select prod
-          terraform -chdir=terraform apply
+          terraform init
+          terraform workspace select prod
+          terraform apply
